@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "prebuild": "node -e \"try { require.resolve('next/package.json'); } catch(e) { require('child_process').execSync('npm install', { stdio: 'inherit' }); }\"",
     "build": "next build",
     "start": "next start"
   },
