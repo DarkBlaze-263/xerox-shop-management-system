@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getSettings, updateSettings } from '@/lib/server/db'
+import { getSettings, getUserIdFromRequest, updateSettings } from '@/lib/server/db'
 import type { PriceItem } from '@/lib/types'
 import { ValidationError, cleanMoney, cleanText, errorResponse, newId } from '@/lib/validate'
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const settings = await getSettings()
+    const userId = getUserIdFromRequest(request)
+    const settings = await getSettings(userId)
     return NextResponse.json(settings)
   } catch (err) {
     return errorResponse(err)
@@ -14,6 +15,7 @@ export async function GET() {
 
 export async function PUT(request: NextRequest) {
   try {
+    const userId = getUserIdFromRequest(request)
     const body = await request.json()
 
     if (!Array.isArray(body?.priceList) || body.priceList.length > 300) {
@@ -27,8 +29,8 @@ export async function PUT(request: NextRequest) {
       category: raw?.category === 'stationery' ? 'stationery' : 'xerox',
     }))
 
-    const shopName = cleanText(body?.shopName, 60) || 'My Xerox Shop'
-    const updated = await updateSettings(shopName, priceList)
+    const shopName = cleanText(body?.shopName, 60) || `Xerox Shop - ${userId}`
+    const updated = await updateSettings(userId, shopName, priceList)
     return NextResponse.json(updated)
   } catch (err) {
     return errorResponse(err)

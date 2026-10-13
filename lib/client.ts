@@ -1,8 +1,15 @@
 import useSWR from 'swr'
 import type { DayRecord, DaySummary, Settings } from './types'
+import { getClientActiveUser } from './auth'
 
 export async function fetcher<T>(url: string): Promise<T> {
-  const res = await fetch(url)
+  const activeUser = getClientActiveUser() || 'user1'
+  const res = await fetch(url, {
+    headers: {
+      'x-user-id': activeUser,
+    },
+  })
+
   if (!res.ok) {
     let errorMsg = `Request failed: ${res.statusText}`
     try {
@@ -20,11 +27,14 @@ export async function sendJson<T = unknown>(
   url: string,
   method: 'POST' | 'PUT' | 'PATCH' | 'DELETE',
   body?: unknown,
+  customUserId?: string
 ): Promise<T> {
+  const activeUser = customUserId || getClientActiveUser() || 'user1'
   const options: RequestInit = {
     method,
     headers: {
       'Content-Type': 'application/json',
+      'x-user-id': activeUser,
     },
   }
   if (body !== undefined) {
@@ -47,21 +57,28 @@ export async function sendJson<T = unknown>(
 
 export type DayResponse = DayRecord & { suggestedOpening: number }
 
-export function useDay(date: string | null) {
-  return useSWR<DayResponse>(date ? `/api/day?date=${date}` : null, fetcher, {
+export function useDay(date: string | null, userId?: string) {
+  const user = userId || getClientActiveUser() || 'user1'
+  return useSWR<DayResponse>(
+    date ? `/api/day?date=${date}&userId=${user}` : null,
+    fetcher,
+    {
+      revalidateOnFocus: true,
+      revalidateOnReconnect: true,
+    }
+  )
+}
+
+export function useSettings(userId?: string) {
+  const user = userId || getClientActiveUser() || 'user1'
+  return useSWR<Settings>(`/api/settings?userId=${user}`, fetcher, {
     revalidateOnFocus: true,
-    revalidateOnReconnect: true,
   })
 }
 
-export function useSettings() {
-  return useSWR<Settings>('/api/settings', fetcher, {
-    revalidateOnFocus: true,
-  })
-}
-
-export function useHistory() {
-  return useSWR<DaySummary[]>('/api/history', fetcher, {
+export function useHistory(userId?: string) {
+  const user = userId || getClientActiveUser() || 'user1'
+  return useSWR<DaySummary[]>(`/api/history?userId=${user}`, fetcher, {
     revalidateOnFocus: true,
   })
 }
@@ -77,8 +94,9 @@ export type SnapshotInfo = {
   sizeBytes: number
 }
 
-export function useSnapshots() {
-  return useSWR<SnapshotInfo[]>('/api/backup/snapshots', fetcher)
+export function useSnapshots(userId?: string) {
+  const user = userId || getClientActiveUser() || 'user1'
+  return useSWR<SnapshotInfo[]>(`/api/backup/snapshots?userId=${user}`, fetcher)
 }
 
 export const inr = (n: number) =>
@@ -128,14 +146,19 @@ export function timeOf(iso: string) {
   }
 }
 
-export async function downloadBackupFile() {
-  const res = await fetch('/api/backup')
+export async function downloadBackupFile(userId?: string) {
+  const user = userId || getClientActiveUser() || 'user1'
+  const res = await fetch(`/api/backup?userId=${user}`, {
+    headers: {
+      'x-user-id': user,
+    },
+  })
   if (!res.ok) throw new Error('Failed to download backup from server')
   const blob = await res.blob()
   const url = window.URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `xerox-shop-backup-${dateKey()}.json`
+  a.download = `xerox-shop-${user}-backup-${dateKey()}.json`
   document.body.appendChild(a)
   a.click()
   a.remove()

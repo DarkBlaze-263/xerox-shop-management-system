@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase, listServerSnapshots, restoreServerSnapshot, saveDatabase } from '@/lib/server/db'
+import { getDatabase, getUserIdFromRequest, listServerSnapshots, restoreServerSnapshot, saveDatabase } from '@/lib/server/db'
 import { ValidationError, cleanText, errorResponse } from '@/lib/validate'
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const snapshots = await listServerSnapshots()
+    const userId = getUserIdFromRequest(request)
+    const snapshots = await listServerSnapshots(userId)
     return NextResponse.json(snapshots)
   } catch (err) {
     return errorResponse(err)
@@ -13,24 +14,25 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
+    const userId = getUserIdFromRequest(request)
     const body = await request.json()
     const action = cleanText(body?.action, 30)
 
     if (action === 'create') {
-      const db = await getDatabase()
-      await saveDatabase(db, true)
-      return NextResponse.json({ ok: true, message: 'Snapshot created' })
+      const db = await getDatabase(userId)
+      await saveDatabase(userId, db, true)
+      return NextResponse.json({ ok: true, message: `Snapshot created for ${userId}` })
     }
 
     if (action === 'restore') {
       const fileName = cleanText(body?.fileName, 100, true)
-      const current = await getDatabase()
+      const current = await getDatabase(userId)
       // Preserve a pre-restore backup
-      await saveDatabase(current, true)
-      const restored = await restoreServerSnapshot(fileName)
+      await saveDatabase(userId, current, true)
+      const restored = await restoreServerSnapshot(userId, fileName)
       return NextResponse.json({
         ok: true,
-        message: 'Snapshot restored',
+        message: `Snapshot restored for ${userId}`,
         shopName: restored.shopName,
       })
     }

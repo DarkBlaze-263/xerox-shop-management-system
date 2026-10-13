@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase, saveDatabase } from '@/lib/server/db'
+import { getDatabase, getUserIdFromRequest, saveDatabase } from '@/lib/server/db'
 import type { Database } from '@/lib/types'
 import { ValidationError, errorResponse } from '@/lib/validate'
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const db = await getDatabase()
+    const userId = getUserIdFromRequest(request)
+    const db = await getDatabase(userId)
     const json = JSON.stringify(db, null, 2)
     const today = new Date().toISOString().slice(0, 10)
 
@@ -13,7 +14,7 @@ export async function GET() {
       status: 200,
       headers: {
         'Content-Type': 'application/json',
-        'Content-Disposition': `attachment; filename="xerox-shop-backup-${today}.json"`,
+        'Content-Disposition': `attachment; filename="xerox-shop-${userId}-backup-${today}.json"`,
       },
     })
   } catch (err) {
@@ -23,6 +24,7 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
+    const userId = getUserIdFromRequest(request)
     const body = (await request.json()) as Partial<Database>
 
     if (
@@ -35,21 +37,21 @@ export async function POST(request: NextRequest) {
       throw new ValidationError('Uploaded file is not a valid Xerox Shop backup.')
     }
 
-    const currentDb = await getDatabase()
+    const currentDb = await getDatabase(userId)
     // Make a snapshot of the current state before replacing it
-    await saveDatabase(currentDb, true)
+    await saveDatabase(userId, currentDb, true)
 
     const restoredDb: Database = {
-      shopName: typeof body.shopName === 'string' && body.shopName.trim() ? body.shopName.trim() : 'My Xerox Shop',
+      shopName: typeof body.shopName === 'string' && body.shopName.trim() ? body.shopName.trim() : `Xerox Shop - ${userId}`,
       priceList: body.priceList,
       days: body.days,
     }
 
-    await saveDatabase(restoredDb, true)
+    await saveDatabase(userId, restoredDb, true)
 
     return NextResponse.json({
       ok: true,
-      message: 'Backup restored successfully',
+      message: `Backup restored successfully for ${userId}`,
       shopName: restoredDb.shopName,
       daysCount: Object.keys(restoredDb.days).length,
     })

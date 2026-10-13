@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { addEntryToDay, deleteEntryFromDay } from '@/lib/server/db'
+import { addEntryToDay, deleteEntryFromDay, getUserIdFromRequest } from '@/lib/server/db'
 import type { Category, Entry, LineItem, PaymentMode } from '@/lib/types'
 import { ValidationError, assertDate, cleanMoney, cleanQty, cleanText, errorResponse, newId } from '@/lib/validate'
 
@@ -9,6 +9,7 @@ const round = (n: number) => Math.round(n * 100) / 100
 
 export async function POST(request: NextRequest) {
   try {
+    const userId = getUserIdFromRequest(request)
     const body = await request.json()
     const date = assertDate(body?.date)
 
@@ -55,7 +56,7 @@ export async function POST(request: NextRequest) {
       balance: round(cashGiven - cashAmount),
     }
 
-    const saved = await addEntryToDay(date, entry)
+    const saved = await addEntryToDay(userId, date, entry)
     return NextResponse.json(saved, { status: 201 })
   } catch (err) {
     return errorResponse(err)
@@ -64,11 +65,12 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
+    const userId = getUserIdFromRequest(request)
     const searchParams = request.nextUrl.searchParams
     const date = assertDate(searchParams.get('date'))
     const id = cleanText(searchParams.get('id'), 100, true)
 
-    const success = await deleteEntryFromDay(date, id)
+    const success = await deleteEntryFromDay(userId, date, id)
     if (!success) {
       return NextResponse.json({ error: 'Entry not found' }, { status: 404 })
     }

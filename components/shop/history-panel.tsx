@@ -6,13 +6,14 @@ import { Button } from '@/components/ui/button'
 import { inr, prettyDate, sendJson, useHistory, useSnapshots, downloadBackupFile, timeOf } from '@/lib/client'
 
 type Props = {
+  userId?: string
   onOpenDay: (date: string) => void
   onRestored: () => void
 }
 
-export function HistoryPanel({ onOpenDay, onRestored }: Props) {
-  const { data: days, mutate: mutateHistory } = useHistory()
-  const { data: snapshots, mutate: mutateSnapshots } = useSnapshots()
+export function HistoryPanel({ userId, onOpenDay, onRestored }: Props) {
+  const { data: days, mutate: mutateHistory } = useHistory(userId)
+  const { data: snapshots, mutate: mutateSnapshots } = useSnapshots(userId)
   const fileRef = useRef<HTMLInputElement>(null)
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null)
   const [processing, setProcessing] = useState(false)
@@ -20,7 +21,7 @@ export function HistoryPanel({ onOpenDay, onRestored }: Props) {
   async function handleDownloadBackup() {
     try {
       setMessage(null)
-      await downloadBackupFile()
+      await downloadBackupFile(userId)
       setMessage({ ok: true, text: 'Backup downloaded successfully to your computer.' })
     } catch (e) {
       setMessage({ ok: false, text: e instanceof Error ? e.message : 'Could not download backup' })

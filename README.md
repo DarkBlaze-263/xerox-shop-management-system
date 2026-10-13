@@ -1,4 +1,4 @@
-# 🖨️ Xerox Shop Management System
+# 🖨️ Xerox Shop Management System (Multi-User Edition)
 
 A modern, fast, and reliable billing and daily accounting web application designed specifically for Xerox, print, and stationery shops. Built with Next.js 16 (App Router), React 19, TypeScript, and Tailwind CSS.
 
@@ -6,148 +6,100 @@ A modern, fast, and reliable billing and daily accounting web application design
 
 ## ✨ Features
 
+- **👥 Multi-User Terminal & Authenticator**:
+  - **Single Login Page** with quick operator selection cards & touch keypad.
+  - **User 1 (Counter 1)**: Main Xerox, color printing, document scanning, and general POS.
+  - **User 2 (Counter 2)**: Stationery, lamination, spiral binding, and finishing items.
+  - **User 3 (Manager / Owner)**: Store manager, auditing, daily expense accounting, and pricing setup.
+  - **4-Digit Fast PIN Authenticator** (Default: User 1: `1111` | User 2: `2222` | User 3: `3333`).
+  - **Independent Databases**: Each operator has their own completely isolated database, pricing list, bills, and daily accounts!
+  - **Automatic Routing**: Authenticator instantly redirects each user to their destined dashboard (`/dashboard/user1`, `/dashboard/user2`, `/dashboard/user3`).
+  - **Counter Switcher**: One-click counter switching in the header.
+
+- **🛡️ Rock-Solid Vercel Persistence (Zero Data Loss)**:
+  - **Why Vercel Previously Cleared Data**: On Vercel, serverless containers are ephemeral. Any file written to local `/tmp` is wiped when containers sleep after 5-15 minutes or when new containers spin up.
+  - **Dual Persistence Engine**:
+    1. **Browser Persistent Vault (Default)**: Automatically saves and restores all bills, expenses, and settings per user in `localStorage`. Even across cold-starts, page refreshes, and multi-day sessions, your data is never cleared!
+    2. **Cloud KV / Upstash Redis (Optional Multi-Device Sync)**: Set `KV_REST_API_URL` and `KV_REST_API_TOKEN` to sync transactions across multiple devices (phones, laptops, counter PCs) permanently on the cloud for free.
+    3. **Automated Rolling Snapshots**: Snapshots are backed up per user and can be downloaded or restored at any time.
+
 - **⚡ Fast POS Billing**:
   - One-tap quick add for Xerox, color printing, lamination, spiral binding, and stationery items.
   - Custom line items on the fly (passport photos, special printouts, etc.).
   - Real-time bill calculations with quantity and custom rate adjustments.
+
 - **💰 Multi-Mode Payment & Change Calculator**:
   - Cash, UPI (GPay/PhonePe/Paytm), and Split Payment (Cash + UPI).
   - Built-in quick tender denomination buttons (₹10, ₹20, ₹50, ₹100, ₹200, ₹500) and change-to-return calculator.
+
 - **💸 Daily Expense Tracker**:
   - Record paper bundles, toner, machine repairs, snacks, rent, and electricity expenses with Cash or UPI tagging.
+
 - **📊 Real-Time Daily Summary Cards**:
   - Total Sales & Bill count
   - Cash Received vs. UPI Received
   - Total Expenses (Cash vs. UPI breakdown)
   - Cash in Drawer balance (`Opening Cash + Cash In − Cash Expenses`)
-- **🛡️ Database & Backup Vault**:
-  - **Zero-Loss Data Persistence**: All bills, expenses, and settings are saved automatically in the backend database. Data never resets on page refresh!
-  - **Automated Snapshots**: Periodic rolling snapshots created automatically before critical mutations.
-  - **Download Backup**: One-click download of the complete database as a portable JSON file.
-  - **Restore Backup**: Upload and restore previous backup files with pre-restore safety snapshots.
-  - **Export to Excel (CSV)**: Download day-wise accounts statements for accounting and tax purposes.
+
 - **⚙️ Custom Price List & Shop Settings**:
-  - Easily configure shop name and customize rates for printing, scanning, and stationery items.
+  - Each operator can configure their shop counter name and customize rates for printing, scanning, and stationery items.
+
+---
+
+## 🔑 Operator Accounts & Default PINs
+
+| User | Counter Name | Default PIN | Destined Dashboard |
+| :--- | :--- | :--- | :--- |
+| **User 1** | Counter 1 (Main Xerox & Print) | `1111` | `/dashboard/user1` |
+| **User 2** | Counter 2 (Stationery & Binding) | `2222` | `/dashboard/user2` |
+| **User 3** | Counter 3 (Store Manager / Owner) | `3333` | `/dashboard/user3` |
+
+> [!TIP]
+> You can change the default PINs by setting `PIN_USER1`, `PIN_USER2`, and `PIN_USER3` in your `.env` or Vercel Environment Variables.
 
 ---
 
 ## 🛠️ Tech Stack
 
-- **Framework**: [Next.js 16](https://nextjs.org/) (App Router & Route Handlers)
-- **Frontend**: [React 19](https://react.dev/), [Tailwind CSS v4](https://tailwindcss.com/), [Lucide React Icons](https://lucide.dev/)
-- **State & Data Fetching**: [SWR](https://swr.vercel.app/)
-- **Backend & API**: Next.js Server Route Handlers (`/api/day`, `/api/entries`, `/api/expenses`, `/api/settings`, `/api/history`, `/api/backup`, `/api/backup/snapshots`, `/api/health`)
-- **Database Engine**: Persistent JSON database engine with atomic temp-file-and-rename writes and rollback snapshot vault.
+- **Framework**: Next.js 16 (App Router & Route Handlers)
+- **Frontend**: React 19, Tailwind CSS v4, Lucide React Icons
+- **State & Data Fetching**: SWR
+- **Authentication**: PIN Authenticator, session cookies, and route middleware
+- **Database Engine**: Multi-user isolated JSON engine + Browser Persistent Storage + Upstash Redis / Vercel KV cloud adapter
 
 ---
 
 ## 🚀 Getting Started
 
-### Prerequisites
-
-- [Node.js](https://nodejs.org/) v20.11 or higher
-- `npm` (bundled with Node.js)
-
-### Installation
-
-1. Clone or open the project directory:
-   ```bash
-   cd xerox-shop-management-system
-   ```
-
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
-
-3. Start the development server:
-   ```bash
-   npm run dev
-   ```
-
-4. Open [http://localhost:3000](http://localhost:3000) in your browser.
-
----
-
-## 🏗️ Production Build
-
-To create an optimized production build:
-
+### 1. Installation
 ```bash
-npm run build
-npm start
+cd xerox-shop-management-system
+npm install
 ```
 
----
-
-## 📦 Database & Storage
-
-The database files are stored by default in `.data/`:
-- `.data/shop-db.json` — Active shop database
-- `.data/backups/` — Automated rolling snapshot backups
-
-To configure a custom database path (e.g. for Docker or VPS persistent volumes):
+### 2. Start Local Development
 ```bash
-# In .env or environment variables:
-DATA_DIR=/var/data/xerox-shop
+npm run dev
 ```
+Open [http://localhost:3000](http://localhost:3000). You will be automatically redirected to the Login page (`/login`).
 
 ---
 
-## 🚢 Deployment Guide
+## 🚢 Deploying to Vercel (Persistent Storage Setup)
 
-### Option 1: Vercel (Recommended for quick deployment)
-1. Push your repository to GitHub.
-2. Go to [vercel.com](https://vercel.com/) and click **Add New Project**.
-3. Select your GitHub repository.
-4. Next.js is automatically detected — click **Deploy**.
+### Option 1: Browser Persistent Storage (Zero Setup Required!)
+Deploy directly to Vercel without configuring any databases.
+1. Push code to GitHub and import the project into Vercel.
+2. Click **Deploy**.
+3. All data will be safely stored in the browser per user and auto-synced across page refreshes and multi-day sessions!
 
-### Option 2: Render / Railway / Fly.io / VPS (with persistent disk)
-1. Connect your GitHub repository.
-2. Build Command: `npm install && npm run build`
-3. Start Command: `npm start`
-4. Attach a persistent volume mounted at `/app/.data` and set `DATA_DIR=/app/.data` so that data persists across redeployments.
-
-### Option 3: Docker
-```dockerfile
-FROM node:20-alpine AS runner
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci --omit=dev
-COPY . .
-RUN npm run build
-EXPOSE 3000
-CMD ["npm", "start"]
-```
-
----
-
-## 📤 Push to GitHub
-
-To push this codebase to your GitHub repository:
-
-```bash
-# 1. Initialize git (if not already done)
-git init
-
-# 2. Stage all files
-git add .
-
-# 3. Create your first commit
-git commit -m "feat: complete Xerox Shop Management System with backend API, database, and backup vault"
-
-# 4. Set main branch
-git branch -M main
-
-# 5. Link your GitHub repository (replace with your repo URL)
-git remote add origin https://github.com/YOUR_USERNAME/YOUR_REPOSITORY.git
-
-# 6. Push code to GitHub
-git push -u origin main
-```
-
----
-
-## 📄 License
-
-MIT License. Free to use and customize for your shop!
+### Option 2: Cloud Database for Multi-Device Sync (Recommended for multiple PCs/phones)
+To allow Counter 1, Counter 2, and Manager to sync across different devices or phones:
+1. Create a free database at [Upstash](https://upstash.com) (Redis) or Vercel Storage (KV).
+2. Copy the **REST URL** and **REST TOKEN**.
+3. In your Vercel Project Settings -> **Environment Variables**, add:
+   ```env
+   KV_REST_API_URL=https://your-upstash-instance.upstash.io
+   KV_REST_API_TOKEN=your-token-here
+   ```
+4. Redeploy. All users' databases are now permanently saved in the cloud!
