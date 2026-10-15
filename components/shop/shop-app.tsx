@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useTransition } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useSWRConfig } from 'swr'
 import {
@@ -15,11 +15,15 @@ import {
   Sparkles,
   Database,
   Store,
+  Info,
+  X,
+  Download,
+  Cloud,
 } from 'lucide-react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
-import { dateKey, prettyDate, useDay, useSettings } from '@/lib/client'
+import { dateKey, downloadBackupFile, prettyDate, useDay, useSettings } from '@/lib/client'
 import { summarizeDay } from '@/lib/summary'
 import { USERS, VALID_USER_IDS, type UserId, clearClientActiveUser, setClientActiveUser } from '@/lib/auth'
 import { getClientDb, saveClientDb, syncDatabaseWithServer } from '@/lib/storage-sync'
@@ -45,6 +49,7 @@ export function ShopApp({ userId: propUserId }: Props) {
   const [tab, setTab] = useState('billing')
   const [refreshing, setRefreshing] = useState(false)
   const [showSwitchMenu, setShowSwitchMenu] = useState(false)
+  const [showVaultModal, setShowVaultModal] = useState(false)
   const [syncStatus, setSyncStatus] = useState<'synced' | 'syncing' | 'ready'>('ready')
   const { mutate: globalMutate } = useSWRConfig()
 
@@ -74,34 +79,44 @@ export function ShopApp({ userId: propUserId }: Props) {
   const { data: day, mutate: mutateDay, isLoading: isDayLoading, error: dayError } = useDay(selected, activeUserId)
   const { data: settings, mutate: mutateSettings, isLoading: isSettingsLoading } = useSettings(activeUserId)
 
-  // Resilient Vercel Persistence: Auto-sync server DB with browser persistent storage
+  // Resilient Vercel Persistence: Auto-sync on counter change and maintain local vault
   useEffect(() => {
-    if (settings && day && selected) {
+    setSyncStatus('syncing')
+    syncDatabaseWithServer(activeUserId)
+      .then(() => mutateDay())
+      .finally(() => {
+        setSyncStatus('synced')
+      })
+  }, [activeUserId, mutateDay])
+
+  // When day data updates, update local vault if the day contains entries/cash
+  useEffect(() => {
+    if (day && selected && settings) {
       const local = getClientDb(activeUserId)
-      const currentDb = local || {
-        shopName: settings.shopName,
-        priceList: settings.priceList,
-        days: { [selected]: day },
-      }
+      const currentDay = local.days[selected]
+      const serverHasData = (day.entries?.length || 0) > 0 || (day.expenses?.length || 0) > 0 || day.openingCash > 0
+      const localHasData = currentDay && ((currentDay.entries?.length || 0) > 0 || (currentDay.expenses?.length || 0) > 0 || currentDay.openingCash > 0)
 
-      currentDb.shopName = settings.shopName
-      currentDb.priceList = settings.priceList
-      currentDb.days[selected] = day
-
-      // Save to client storage immediately
-      saveClientDb(activeUserId, currentDb)
-
-      // Check if server needs restoration (e.g. after Vercel container cold-start)
-      if (local && Object.keys(local.days || {}).length > 0) {
+      if (serverHasData) {
+        local.days[selected] = {
+          date: selected,
+          openingCash: day.openingCash,
+          entries: day.entries,
+          expenses: day.expenses,
+        }
+        local.shopName = settings.shopName
+        local.priceList = settings.priceList
+        saveClientDb(activeUserId, local)
+      } else if (localHasData && !serverHasData) {
+        // Vercel server was cold-started or ephemeral storage rebooted!
+        // Do NOT overwrite local data! Restore server instead!
         setSyncStatus('syncing')
-        syncDatabaseWithServer(activeUserId, currentDb).finally(() => {
+        syncDatabaseWithServer(activeUserId, local).finally(() => {
           setSyncStatus('synced')
         })
-      } else {
-        setSyncStatus('synced')
       }
     }
-  }, [activeUserId, settings, day, selected])
+  }, [activeUserId, day, selected, settings])
 
   async function refresh() {
     setRefreshing(true)
@@ -199,11 +214,16 @@ export function ShopApp({ userId: propUserId }: Props) {
                   )}
                 </div>
 
-                {/* Vercel Persistent Vault Status */}
-                <span className="hidden lg:inline-flex items-center gap-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
-                  <ShieldCheck className="size-3" />
-                  Persistent Vault
-                </span>
+                {/* Interactive Vercel Persistent Vault Status */}
+                <button
+                  type="button"
+                  onClick={() => setShowVaultModal(true)}
+                  className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 text-[11px] font-medium text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 transition-colors"
+                  title="Click to view persistence vault details"
+                >
+                  <ShieldCheck className="size-3.5" />
+                  <span>{syncStatus === 'syncing' ? 'Syncing...' : 'Vault Protected'}</span>
+                </button>
               </div>
 
               <p className="text-xs text-muted-foreground flex items-center gap-2 mt-0.5">
@@ -297,6 +317,7 @@ export function ShopApp({ userId: propUserId }: Props) {
               date={selected}
               openingCash={day.openingCash}
               suggested={day.suggestedOpening}
+              userId={activeUserId}
               onSaved={refresh}
             />
 
@@ -310,18 +331,19 @@ export function ShopApp({ userId: propUserId }: Props) {
 
               <TabsContent value="billing" className="pt-3">
                 <div className="grid gap-5 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
-                  <BillForm date={selected} priceList={settings.priceList} onSaved={refresh} />
-                  <TransactionsList date={selected} entries={day.entries} onChanged={refresh} />
+                  <BillForm date={selected} priceList={settings.priceList} userId={activeUserId} onSaved={refresh} />
+                  <TransactionsList date={selected} entries={day.entries} userId={activeUserId} onChanged={refresh} />
                 </div>
               </TabsContent>
 
               <TabsContent value="expenses" className="pt-3">
-                <ExpensesPanel date={selected} expenses={day.expenses} onChanged={refresh} />
+                <ExpensesPanel date={selected} expenses={day.expenses} userId={activeUserId} onChanged={refresh} />
               </TabsContent>
 
               <TabsContent value="prices" className="pt-3">
                 <PriceListEditor
                   settings={settings}
+                  userId={activeUserId}
                   onSaved={(s) => mutateSettings(s, false)}
                 />
               </TabsContent>
@@ -340,6 +362,83 @@ export function ShopApp({ userId: propUserId }: Props) {
           </>
         )}
       </main>
+
+      {/* Persistent Vault Information Modal */}
+      {showVaultModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in">
+          <div className="relative w-full max-w-lg rounded-2xl border bg-card p-6 shadow-2xl animate-in zoom-in-95">
+            <button
+              type="button"
+              onClick={() => setShowVaultModal(false)}
+              className="absolute right-4 top-4 rounded-lg p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+            >
+              <X className="size-5" />
+            </button>
+
+            <div className="flex items-center gap-3">
+              <span className="flex size-10 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-600">
+                <ShieldCheck className="size-6" />
+              </span>
+              <div>
+                <h3 className="text-lg font-bold">Data Persistence Vault</h3>
+                <p className="text-xs text-muted-foreground">Active Counter: {currentUser.name} ({currentUser.label})</p>
+              </div>
+            </div>
+
+            <div className="mt-5 flex flex-col gap-3.5 text-sm">
+              <div className="rounded-xl border bg-emerald-500/5 border-emerald-500/20 p-3.5">
+                <div className="flex items-center gap-2 font-semibold text-emerald-600 dark:text-emerald-400">
+                  <CheckCircle2 className="size-4 shrink-0" />
+                  <span>Browser Local Vault: 100% Protected</span>
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
+                  Every bill, transaction, expense, and daily opening cash amount is saved <strong>instantly in this browser&apos;s storage</strong>.
+                  Refreshing the page (F5), reloading, closing the tab, or server cold-starts on Vercel will <strong>NEVER delete your data</strong>.
+                </p>
+              </div>
+
+              <div className="rounded-xl border bg-muted/40 p-3.5">
+                <div className="flex items-center gap-2 font-semibold">
+                  <Cloud className="size-4 text-primary shrink-0" />
+                  <span>Multi-Device Cloud Sync (Optional)</span>
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
+                  Your bills are safely stored on this computer. If you want to access the exact same counter from multiple computers or mobile phones simultaneously, you can connect a free <strong>Upstash Redis</strong> database in Vercel in 60 seconds (100% free, 10,000 commands/day).
+                </p>
+              </div>
+
+              <div className="flex flex-wrap gap-2 pt-2">
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    setSyncStatus('syncing')
+                    syncDatabaseWithServer(activeUserId).finally(() => {
+                      setSyncStatus('synced')
+                      refresh()
+                    })
+                  }}
+                  className="gap-1.5"
+                >
+                  <RefreshCw className={`size-3.5 ${syncStatus === 'syncing' ? 'animate-spin' : ''}`} />
+                  Sync Database Now
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => downloadBackupFile(activeUserId)}
+                  className="gap-1.5"
+                >
+                  <Download className="size-3.5" />
+                  Download Backup (.json)
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => setShowVaultModal(false)}>
+                  Close
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -110,21 +110,59 @@ function getKvConfig() {
   return null
 }
 
+export function isKvConfigured(): boolean {
+  return Boolean(getKvConfig())
+}
+
 async function getFromKv(userId: string): Promise<Database | null> {
   const kv = getKvConfig()
   if (!kv) return null
 
   try {
-    const res = await fetch(`${kv.url}/get/xerox_db_${userId}`, {
+    const key = `xerox_db_${userId}`
+    const baseUrl = kv.url.replace(/\/+$/, '')
+
+    let res = await fetch(`${baseUrl}/get/${key}`, {
       headers: { Authorization: `Bearer ${kv.token}` },
       cache: 'no-store',
     })
+
+    if (!res.ok) {
+      res = await fetch(baseUrl, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${kv.token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(['GET', key]),
+        cache: 'no-store',
+      })
+    }
+
     if (!res.ok) return null
     const json = await res.json()
     if (!json?.result) return null
-    const raw = typeof json.result === 'string' ? json.result : JSON.stringify(json.result)
-    const parsed = JSON.parse(raw) as Database
-    return parsed
+
+    let parsed: any = json.result
+    if (typeof parsed === 'string') {
+      try {
+        parsed = JSON.parse(parsed)
+      } catch {
+        return null
+      }
+    }
+    if (typeof parsed === 'string') {
+      try {
+        parsed = JSON.parse(parsed)
+      } catch {
+        return null
+      }
+    }
+
+    if (parsed && typeof parsed === 'object' && parsed.days) {
+      return parsed as Database
+    }
+    return null
   } catch (err) {
     console.warn('[KV] Error fetching database from Cloud KV:', err)
     return null
@@ -136,15 +174,31 @@ async function saveToKv(userId: string, db: Database): Promise<boolean> {
   if (!kv) return false
 
   try {
-    const res = await fetch(`${kv.url}/set/xerox_db_${userId}`, {
+    const key = `xerox_db_${userId}`
+    const payload = JSON.stringify(db)
+    const baseUrl = kv.url.replace(/\/+$/, '')
+
+    const res = await fetch(baseUrl, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${kv.token}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(JSON.stringify(db)),
+      body: JSON.stringify(['SET', key, payload]),
     })
-    return res.ok
+
+    if (res.ok) return true
+
+    const fallbackRes = await fetch(`${baseUrl}/set/${key}`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${kv.token}`,
+        'Content-Type': 'application/json',
+      },
+      body: payload,
+    })
+
+    return fallbackRes.ok
   } catch (err) {
     console.warn('[KV] Error saving database to Cloud KV:', err)
     return false

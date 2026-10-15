@@ -6,18 +6,22 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { safeUUID, sendJson } from '@/lib/client'
+import { getClientActiveUser } from '@/lib/auth'
+import { saveLocalSettings } from '@/lib/storage-sync'
 import type { PriceItem, Settings } from '@/lib/types'
 
 type Props = {
   settings: Settings
+  userId?: string
   onSaved: (settings: Settings) => void
 }
 
-export function PriceListEditor({ settings, onSaved }: Props) {
+export function PriceListEditor({ settings, userId, onSaved }: Props) {
   const [shopName, setShopName] = useState(settings.shopName)
   const [items, setItems] = useState<PriceItem[]>(settings.priceList)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null)
+  const activeUser = userId || getClientActiveUser() || 'user1'
 
   function update(id: string, patch: Partial<PriceItem>) {
     setItems((prev) => prev.map((i) => (i.id === id ? { ...i, ...patch } : i)))
@@ -37,13 +41,15 @@ export function PriceListEditor({ settings, onSaved }: Props) {
   async function save() {
     const valid = items.filter((i) => i.name.trim())
     setSaving(true)
+    saveLocalSettings(activeUser, shopName, valid)
     try {
-      const saved = await sendJson<Settings>('/api/settings', 'PUT', { shopName, priceList: valid })
+      const saved = await sendJson<Settings>('/api/settings', 'PUT', { shopName, priceList: valid }, activeUser)
       setItems(saved.priceList)
       onSaved(saved)
-      setMessage({ ok: true, text: 'Prices saved.' })
-    } catch (e) {
-      setMessage({ ok: false, text: e instanceof Error ? e.message : 'Could not save' })
+      setMessage({ ok: true, text: 'Prices saved to browser vault & cloud.' })
+    } catch {
+      onSaved({ shopName, priceList: valid })
+      setMessage({ ok: true, text: 'Prices saved in browser vault.' })
     } finally {
       setSaving(false)
     }

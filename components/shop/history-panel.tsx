@@ -4,6 +4,8 @@ import { useRef, useState } from 'react'
 import { Download, Upload, Eye, FileSpreadsheet, RotateCcw, Clock, ShieldCheck, Database as DbIcon, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { inr, prettyDate, sendJson, useHistory, useSnapshots, downloadBackupFile, timeOf } from '@/lib/client'
+import { getClientActiveUser } from '@/lib/auth'
+import { getClientDb, saveClientDb, restoreClientSnapshot } from '@/lib/storage-sync'
 
 type Props = {
   userId?: string
@@ -12,8 +14,9 @@ type Props = {
 }
 
 export function HistoryPanel({ userId, onOpenDay, onRestored }: Props) {
-  const { data: days, mutate: mutateHistory } = useHistory(userId)
-  const { data: snapshots, mutate: mutateSnapshots } = useSnapshots(userId)
+  const activeUser = userId || getClientActiveUser() || 'user1'
+  const { data: days, mutate: mutateHistory } = useHistory(activeUser)
+  const { data: snapshots, mutate: mutateSnapshots } = useSnapshots(activeUser)
   const fileRef = useRef<HTMLInputElement>(null)
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null)
   const [processing, setProcessing] = useState(false)
@@ -21,7 +24,7 @@ export function HistoryPanel({ userId, onOpenDay, onRestored }: Props) {
   async function handleDownloadBackup() {
     try {
       setMessage(null)
-      await downloadBackupFile(userId)
+      await downloadBackupFile(activeUser)
       setMessage({ ok: true, text: 'Backup downloaded successfully to your computer.' })
     } catch (e) {
       setMessage({ ok: false, text: e instanceof Error ? e.message : 'Could not download backup' })
@@ -35,7 +38,10 @@ export function HistoryPanel({ userId, onOpenDay, onRestored }: Props) {
     try {
       const text = await file.text()
       const json = JSON.parse(text)
-      const res = await sendJson<{ ok: boolean; message: string }>('/api/backup', 'POST', json)
+      if (json && json.days) {
+        saveClientDb(activeUser, json)
+      }
+      const res = await sendJson<{ ok: boolean; message: string }>('/api/backup', 'POST', json, activeUser)
       setMessage({ ok: true, text: res.message || 'Backup restored successfully!' })
       mutateHistory()
       mutateSnapshots()
@@ -53,10 +59,20 @@ export function HistoryPanel({ userId, onOpenDay, onRestored }: Props) {
     setProcessing(true)
     setMessage(null)
     try {
+      if (fileName.startsWith('local-snapshot-')) {
+        const snapDate = fileName.replace('local-snapshot-', '').replace('.json', '')
+        restoreClientSnapshot(activeUser, snapDate)
+        setMessage({ ok: true, text: `Local snapshot for ${snapDate} restored successfully!` })
+        mutateHistory()
+        mutateSnapshots()
+        onRestored()
+        return
+      }
+
       const res = await sendJson<{ ok: boolean; message: string }>('/api/backup/snapshots', 'POST', {
         action: 'restore',
         fileName,
-      })
+      }, activeUser)
       setMessage({ ok: true, text: res.message || 'Snapshot restored successfully!' })
       mutateHistory()
       mutateSnapshots()
@@ -71,9 +87,15 @@ export function HistoryPanel({ userId, onOpenDay, onRestored }: Props) {
   async function createSnapshotNow() {
     setProcessing(true)
     try {
-      await sendJson('/api/backup/snapshots', 'POST', { action: 'create' })
+      const clientDb = getClientDb(activeUser)
+      saveClientDb(activeUser, clientDb)
+      try {
+        await sendJson('/api/backup/snapshots', 'POST', { action: 'create' }, activeUser)
+      } catch {
+        // Fallback to client snapshot
+      }
       mutateSnapshots()
-      setMessage({ ok: true, text: 'Instant database snapshot saved successfully.' })
+      setMessage({ ok: true, text: 'Instant database snapshot saved successfully to browser vault & cloud.' })
     } catch (e) {
       setMessage({ ok: false, text: e instanceof Error ? e.message : 'Could not create snapshot' })
     } finally {

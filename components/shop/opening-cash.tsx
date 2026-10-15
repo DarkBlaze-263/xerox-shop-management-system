@@ -4,23 +4,31 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { inr, sendJson } from '@/lib/client'
+import { getClientActiveUser } from '@/lib/auth'
+import { saveLocalOpeningCash } from '@/lib/storage-sync'
 
 type Props = {
   date: string
   openingCash: number
   suggested: number
+  userId?: string
   onSaved: () => void
 }
 
-export function OpeningCash({ date, openingCash, suggested, onSaved }: Props) {
+export function OpeningCash({ date, openingCash, suggested, userId, onSaved }: Props) {
   const [value, setValue] = useState(String(openingCash))
   const [saving, setSaving] = useState(false)
+  const activeUser = userId || getClientActiveUser() || 'user1'
   const changed = Number(value) !== openingCash
 
   async function save(amount: number) {
     setSaving(true)
+    saveLocalOpeningCash(activeUser, date, amount)
     try {
-      await sendJson('/api/day', 'PATCH', { date, openingCash: amount })
+      await sendJson('/api/day', 'PATCH', { date, openingCash: amount }, activeUser)
+      setValue(String(amount))
+      onSaved()
+    } catch {
       setValue(String(amount))
       onSaved()
     } finally {

@@ -6,7 +6,9 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { inr, safeUUID, sendJson } from '@/lib/client'
-import type { Category, PaymentMode, PriceItem } from '@/lib/types'
+import { getClientActiveUser } from '@/lib/auth'
+import { saveLocalEntry, replaceLocalEntry } from '@/lib/storage-sync'
+import type { Category, Entry, PaymentMode, PriceItem } from '@/lib/types'
 
 type DraftLine = {
   key: string
@@ -20,12 +22,13 @@ type DraftLine = {
 type Props = {
   date: string
   priceList: PriceItem[]
+  userId?: string
   onSaved: () => void
 }
 
 const round = (n: number) => Math.round(n * 100) / 100
 
-export function BillForm({ date, priceList, onSaved }: Props) {
+export function BillForm({ date, priceList, userId, onSaved }: Props) {
   const [lines, setLines] = useState<DraftLine[]>([])
   const [customer, setCustomer] = useState('')
   const [mode, setMode] = useState<PaymentMode>('cash')
@@ -36,6 +39,7 @@ export function BillForm({ date, priceList, onSaved }: Props) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  const activeUser = userId || getClientActiveUser() || 'user1'
   const total = round(lines.reduce((s, l) => s + l.qty * l.price, 0))
   const upiAmount = mode === 'upi' ? total : mode === 'split' ? Math.min(Number(upiPart) || 0, total) : 0
   const cashAmount = round(total - upiAmount)
@@ -96,19 +100,49 @@ export function BillForm({ date, priceList, onSaved }: Props) {
     if (lines.length === 0) return setError('Add at least one item to the bill.')
     if (cashAmount > 0 && balance < 0) return setError('Cash given is less than the amount to pay.')
     setSaving(true)
+
+    const optimisticId = safeUUID()
+    const optimisticEntry: Entry = {
+      id: optimisticId,
+      createdAt: new Date().toISOString(),
+      customer: customer.trim(),
+      items: lines.map(({ name, qty, price, category }) => ({
+        id: safeUUID(),
+        name,
+        qty,
+        price,
+        category,
+      })),
+      total,
+      mode,
+      cashAmount,
+      upiAmount,
+      cashGiven: cashGiven === '' ? cashAmount : Number(cashGiven) || cashAmount,
+      balance,
+    }
+
+    // 1. Instantly save to client-side database (permanent across F5/reloads)
+    saveLocalEntry(activeUser, date, optimisticEntry)
+
     try {
-      await sendJson('/api/entries', 'POST', {
+      const saved = await sendJson<Entry>('/api/entries', 'POST', {
         date,
-        customer,
+        customer: customer.trim(),
         mode,
         upiAmount,
         cashGiven: cashGiven === '' ? '' : Number(cashGiven),
         items: lines.map(({ name, qty, price, category }) => ({ name, qty, price, category })),
-      })
+      }, activeUser)
+
+      if (saved && saved.id) {
+        replaceLocalEntry(activeUser, date, optimisticId, saved)
+      }
       reset()
       onSaved()
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not save the bill')
+      console.warn('Network issue while saving bill, preserved in local browser database:', e)
+      reset()
+      onSaved()
     } finally {
       setSaving(false)
     }

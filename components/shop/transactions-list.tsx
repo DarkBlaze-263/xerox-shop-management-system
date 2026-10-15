@@ -4,11 +4,14 @@ import { useState } from 'react'
 import { Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { inr, sendJson, timeOf } from '@/lib/client'
+import { getClientActiveUser } from '@/lib/auth'
+import { deleteLocalEntry } from '@/lib/storage-sync'
 import type { Entry } from '@/lib/types'
 
 type Props = {
   date: string
   entries: Entry[]
+  userId?: string
   onChanged: () => void
 }
 
@@ -18,14 +21,18 @@ const MODE_STYLE = {
   split: 'bg-primary/10 text-primary',
 } as const
 
-export function TransactionsList({ date, entries, onChanged }: Props) {
+export function TransactionsList({ date, entries, userId, onChanged }: Props) {
   const [deleting, setDeleting] = useState<string | null>(null)
+  const activeUser = userId || getClientActiveUser() || 'user1'
 
   async function remove(entry: Entry) {
     if (!window.confirm(`Delete this bill of ${inr(entry.total)}?`)) return
     setDeleting(entry.id)
     try {
-      await sendJson(`/api/entries?date=${date}&id=${entry.id}`, 'DELETE')
+      deleteLocalEntry(activeUser, date, entry.id)
+      await sendJson(`/api/entries?date=${date}&id=${entry.id}`, 'DELETE', undefined, activeUser)
+      onChanged()
+    } catch {
       onChanged()
     } finally {
       setDeleting(null)

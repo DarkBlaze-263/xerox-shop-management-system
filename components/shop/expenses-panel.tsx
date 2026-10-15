@@ -5,37 +5,55 @@ import { Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { inr, sendJson, timeOf } from '@/lib/client'
+import { inr, safeUUID, sendJson, timeOf } from '@/lib/client'
+import { getClientActiveUser } from '@/lib/auth'
+import { saveLocalExpense, deleteLocalExpense } from '@/lib/storage-sync'
 import type { Expense } from '@/lib/types'
 
 type Props = {
   date: string
   expenses: Expense[]
+  userId?: string
   onChanged: () => void
 }
 
 const QUICK = ['Paper bundle', 'Toner / Ink', 'Tea / Snacks', 'Electricity', 'Rent', 'Machine repair']
 
-export function ExpensesPanel({ date, expenses, onChanged }: Props) {
+export function ExpensesPanel({ date, expenses, userId, onChanged }: Props) {
   const [description, setDescription] = useState('')
   const [amount, setAmount] = useState('')
   const [mode, setMode] = useState<'cash' | 'upi'>('cash')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  const activeUser = userId || getClientActiveUser() || 'user1'
   const total = expenses.reduce((s, e) => s + e.amount, 0)
 
   async function add(e: React.FormEvent) {
     e.preventDefault()
     setError(null)
     setSaving(true)
+
+    const optExpense: Expense = {
+      id: safeUUID(),
+      createdAt: new Date().toISOString(),
+      description: description.trim(),
+      amount: Number(amount),
+      mode,
+    }
+
+    // 1. Immediately save into client database
+    saveLocalExpense(activeUser, date, optExpense)
+
     try {
-      await sendJson('/api/expenses', 'POST', { date, description, amount: Number(amount), mode })
+      await sendJson('/api/expenses', 'POST', { date, description: description.trim(), amount: Number(amount), mode }, activeUser)
       setDescription('')
       setAmount('')
       onChanged()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not save expense')
+    } catch {
+      setDescription('')
+      setAmount('')
+      onChanged()
     } finally {
       setSaving(false)
     }
@@ -43,8 +61,12 @@ export function ExpensesPanel({ date, expenses, onChanged }: Props) {
 
   async function remove(expense: Expense) {
     if (!window.confirm(`Delete expense "${expense.description}"?`)) return
-    await sendJson(`/api/expenses?date=${date}&id=${expense.id}`, 'DELETE')
-    onChanged()
+    deleteLocalExpense(activeUser, date, expense.id)
+    try {
+      await sendJson(`/api/expenses?date=${date}&id=${expense.id}`, 'DELETE', undefined, activeUser)
+    } finally {
+      onChanged()
+    }
   }
 
   return (
